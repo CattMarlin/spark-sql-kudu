@@ -1,0 +1,25 @@
+---
+all_queries:
+- name: query1
+  query:  |
+          SELECT
+            *
+          FROM
+            table1
+          WHERE
+            state = 'NJ'
+  kudu_tables:
+      - table1
+- name: query2
+  query:  |
+          SELECT
+            *
+          FROM
+            table1 t1
+          JOIN
+            table2 t2
+          ON
+            t1.id = t2.fk
+  kudu_tables:
+      - table1
+      - table2
