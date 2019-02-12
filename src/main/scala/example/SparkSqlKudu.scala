@@ -49,7 +49,6 @@ object SparkSqlKudu extends LogHelper {
       spark.read.options(Map("kudu.master" -> kuduMasters, "kudu.table" -> table))
         .kudu
         .createOrReplaceTempView(table)
-
     })
   }
 
