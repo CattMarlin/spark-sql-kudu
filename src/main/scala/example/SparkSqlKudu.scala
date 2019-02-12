@@ -24,26 +24,31 @@ object SparkSqlKudu extends LogHelper {
     val outputDatabase = spark.sparkContext.getConf.get(outputDatabaseConstant)
 
     val yamlString = spark.sparkContext.textFile(yamlHdfsPath).collect.mkString("\n")
-
     val listOfViews = YamlConfigParser.convert(yamlString)
 
-    listOfViews.all_queries.foreach(x => runQuery(x, kuduMasters, outputDatabase))
+    listOfViews.all_queries.foreach(x => {
+      stageTempViews(x.kudu_tables, kuduMasters)
+      writeData(runQueryGetData(x.query),x.name, outputDatabase)
+    })
 
   }
 
 
   /** Stages Kudu tables for use in the sqlContext
     *
-    * @param viewDetails Case Class for a give materialized view
+    * @param tables List of Kudu tables as strings
     * @param kuduMasters Kudu master nodes
     */
-  def stageTempViews(viewDetails: Query, kuduMasters: String): Unit = {
+  def stageTempViews(tables: List[String], kuduMasters: String): Unit = {
     val spark = SparkSession.builder().getOrCreate()
-    spark.sparkContext.setJobDescription(s"Staging tables for ${viewDetails.name}")
 
-    viewDetails.kudu_tables.foreach(x => {
-      spark.read.options(Map("kudu.master" -> kuduMasters, "kudu.table" -> s"impala::latitude_us.$x")).kudu
-        .createOrReplaceTempView(x)
+    tables.par.foreach(table => {
+      spark.sparkContext.setJobDescription(s"Staging table $table")
+      log.info(s"Staging tables for $table")
+
+      spark.read.options(Map("kudu.master" -> kuduMasters, "kudu.table" -> table))
+        .kudu
+        .createOrReplaceTempView(table)
 
     })
   }
@@ -63,29 +68,23 @@ object SparkSqlKudu extends LogHelper {
 
     spark.sql(s"DROP TABLE IF EXISTS $database.$name ")
 
-    spark.sql(s"CREATE EXTERNAL TABLE heartlogic.$name " +
+    spark.sql(s"CREATE EXTERNAL TABLE $database.$name " +
       s"STORED AS PARQUET LOCATION '$database/$name' " +
       s"AS SELECT * FROM $name ")
 
   }
 
 
-  /** Stage, execute, and write the query results
+  /** Execute the query
     *
-    * @param viewDetails Case Class for a given materialized view
-    * @param kuduMasters Kudu master nodes
-    * @param database Destination database
+    * @param sql Query to run
     */
-  def runQuery(viewDetails: Query, kuduMasters: String, database: String): Unit = {
+  def runQueryGetData(sql: String): DataFrame = {
     val spark = SparkSession.builder().getOrCreate()
 
-    stageTempViews(viewDetails, kuduMasters)
+    log.info(s"APP - QUERY IS:\n $sql")
 
-    spark.sparkContext.setJobDescription(s"Running query for ${viewDetails.name}")
-
-    val df = spark.sql(viewDetails.query)
-
-    writeData(df, viewDetails.name, database)
+    spark.sql(sql)
 
   }
 
